@@ -26,14 +26,17 @@ end
 # will be discretized first order form as follows:
 #               1. compute grad(u)
 #               2. compute f(u, grad(u))
-#               3. compute div(f(u, grad(u))) (i.e., the "regular" rhs! call)
+#               3. compute div(f(u, grad(u))) (i.e., the "regular" RHS call)
 # boundary conditions will be applied to both grad(u) and div(f(u, grad(u))).
-function rhs_parabolic!(du, u, t, mesh::Union{TreeMesh{2}, TreeMesh{3}},
+function rhs_parabolic!(backend::Nothing, du, u, t,
+                        mesh::Union{TreeMesh{2}, TreeMesh{3}},
                         equations_parabolic::AbstractEquationsParabolic,
                         boundary_conditions_parabolic, source_terms_parabolic,
                         dg::DG, parabolic_scheme, cache, cache_parabolic)
     @unpack parabolic_container = cache_parabolic
     @unpack u_transformed, gradients, flux_parabolic = parabolic_container
+
+    backend = trixi_backend(u)
 
     # Convert conservative variables to a form more suitable for parabolic flux calculations
     @trixi_timeit timer() "transform variables" begin
@@ -43,7 +46,7 @@ function rhs_parabolic!(du, u, t, mesh::Union{TreeMesh{2}, TreeMesh{3}},
 
     # Compute the gradients of the transformed variables
     @trixi_timeit timer() "calculate gradient" begin
-        calc_gradient!(gradients, u_transformed, t, mesh,
+        calc_gradient!(backend, gradients, u_transformed, t, mesh,
                        equations_parabolic, boundary_conditions_parabolic,
                        dg, parabolic_scheme, cache)
     end
@@ -54,10 +57,10 @@ function rhs_parabolic!(du, u, t, mesh::Union{TreeMesh{2}, TreeMesh{3}},
                                equations_parabolic, dg, cache)
     end
 
-    # The remainder of this function is essentially a regular rhs! for parabolic
+    # The remainder of this function is essentially a regular RHS evaluation for parabolic
     # equations (i.e., it computes the divergence of the parabolic fluxes)
     #
-    # OBS! In `calc_parabolic_fluxes!`, the parabolic flux values at the volume nodes of each element have
+    # Note: In `calc_parabolic_fluxes!`, the parabolic flux values at the volume nodes of each element have
     # been computed and stored in `flux_parabolic`. In the following, we *reuse* (abuse) the
     # `interfaces` and `boundaries` containers in `cache` to interpolate and store the
     # *fluxes* at the element surfaces, as opposed to interpolating and storing the *solution* (as it
@@ -112,15 +115,15 @@ function rhs_parabolic!(du, u, t, mesh::Union{TreeMesh{2}, TreeMesh{3}},
     # This calls the specialized version for the parabolic fluxes from
     # `dg_2d_parabolic.jl` or `dg_3d_parabolic.jl`.
     @trixi_timeit timer() "prolong2mortars" begin
-        prolong2mortars!(cache, flux_parabolic, mesh, equations_parabolic,
+        prolong2mortars!(nothing, cache, flux_parabolic, mesh, equations_parabolic,
                          dg.mortar, dg)
     end
 
     # Calculate mortar fluxes.
-    # This calls the specialized version from 
+    # This calls the specialized version from
     # `dg_2d_parabolic.jl` or `dg_3d_parabolic.jl`.
     @trixi_timeit timer() "mortar flux" begin
-        calc_mortar_flux!(cache.elements.surface_flux_values,
+        calc_mortar_flux!(backend, cache.elements.surface_flux_values,
                           mesh, equations_parabolic, dg.mortar, dg.surface_integral,
                           dg, parabolic_scheme, Divergence(), cache)
     end
@@ -209,7 +212,7 @@ function prolong2interfaces!(cache, flux_parabolic::Tuple,
     @unpack interfaces = cache
     @unpack orientations, neighbor_ids = interfaces
 
-    # OBS! `interfaces_u` stores the interpolated *fluxes* and *not the solution*!
+    # Note: `interfaces_u` stores the interpolated *fluxes* and *not the solution*!
     interfaces_u = interfaces.u
 
     flux_parabolic_x, flux_parabolic_y = flux_parabolic
@@ -252,7 +255,7 @@ function prolong2interfaces!(cache, flux_parabolic::Tuple,
     @unpack orientations, neighbor_ids = interfaces
     @unpack boundary_interpolation = dg.basis
 
-    # OBS! `interfaces_u` stores the interpolated *fluxes* and *not the solution*!
+    # Note: `interfaces_u` stores the interpolated *fluxes* and *not the solution*!
     interfaces_u = interfaces.u
 
     flux_parabolic_x, flux_parabolic_y = flux_parabolic
@@ -359,7 +362,7 @@ function prolong2boundaries!(cache, flux_parabolic::Tuple,
     @unpack boundaries = cache
     @unpack orientations, neighbor_sides, neighbor_ids = boundaries
 
-    # OBS! `boundaries_u` stores the "interpolated" *fluxes* and *not the solution*!
+    # Note: `boundaries_u` stores the "interpolated" *fluxes* and *not the solution*!
     boundaries_u = boundaries.u
     flux_parabolic_x, flux_parabolic_y = flux_parabolic
 
@@ -413,7 +416,7 @@ function prolong2boundaries!(cache, flux_parabolic::Tuple,
     @unpack orientations, neighbor_sides, neighbor_ids = boundaries
     @unpack boundary_interpolation = dg.basis
 
-    # OBS! `boundaries_u` stores the interpolated *fluxes* and *not the solution*!
+    # Note: `boundaries_u` stores the interpolated *fluxes* and *not the solution*!
     boundaries_u = boundaries.u
     flux_parabolic_x, flux_parabolic_y = flux_parabolic
 
@@ -718,7 +721,7 @@ end
 # Specialization `flux_parabolic::Tuple` needed to
 # avoid amibiguity with the hyperbolic version of `prolong2mortars!` in dg_2d.jl
 # which is for the variables itself, i.e., `u::Array{uEltype, 4}`.
-function prolong2mortars!(cache, flux_parabolic::Tuple,
+function prolong2mortars!(backend::Nothing, cache, flux_parabolic::Tuple,
                           mesh::TreeMesh{2},
                           equations_parabolic::AbstractEquationsParabolic,
                           mortar_l2::LobattoLegendreMortarL2,
@@ -828,7 +831,7 @@ end
 # NOTE: Use analogy to "calc_mortar_flux!" for hyperbolic eqs with no nonconservative terms.
 # Reasoning: "calc_interface_flux!" for parabolic part is implemented as the version for
 # hyperbolic terms with conserved terms only, i.e., no nonconservative terms.
-function calc_mortar_flux!(surface_flux_values, mesh::TreeMesh{2},
+function calc_mortar_flux!(backend::Nothing, surface_flux_values, mesh::TreeMesh{2},
                            equations_parabolic::AbstractEquationsParabolic,
                            mortar_l2::LobattoLegendreMortarL2,
                            surface_integral, dg::DG,
@@ -861,7 +864,7 @@ function calc_mortar_flux!(surface_flux_values, mesh::TreeMesh{2},
 end
 
 # For Gauss-Legendre DGSEM mortars are not yet implemented
-function calc_mortar_flux!(surface_flux_values, mesh::TreeMesh{2},
+function calc_mortar_flux!(backend::Nothing, surface_flux_values, mesh::TreeMesh{2},
                            equations_parabolic::AbstractEquationsParabolic,
                            mortar::Nothing,
                            surface_integral, dg::DGSEM{<:GaussLegendreBasis},
@@ -1155,11 +1158,10 @@ function reset_gradients!(gradients::NTuple{2}, dg::DG, cache)
 end
 
 # Calculate the gradient of the transformed variables
-function calc_gradient!(gradients, u_transformed, t,
+function calc_gradient!(backend::Nothing, gradients, u_transformed, t,
                         mesh::Union{TreeMesh{2}, TreeMesh{3}},
                         equations_parabolic, boundary_conditions_parabolic,
                         dg::DG, parabolic_scheme, cache)
-    backend = trixi_backend(u_transformed)
 
     # Reset gradients
     @trixi_timeit timer() "reset gradients" begin
@@ -1204,13 +1206,13 @@ function calc_gradient!(gradients, u_transformed, t,
     # Prolong solution to mortars.
     # This reuses `prolong2mortars` for the purely hyperbolic case.
     @trixi_timeit timer() "prolong2mortars" begin
-        prolong2mortars!(cache, u_transformed, mesh, equations_parabolic,
+        prolong2mortars!(backend, cache, u_transformed, mesh, equations_parabolic,
                          dg.mortar, dg)
     end
 
     # Calculate mortar fluxes
     @trixi_timeit timer() "mortar flux" begin
-        calc_mortar_flux!(surface_flux_values, mesh, equations_parabolic,
+        calc_mortar_flux!(backend, surface_flux_values, mesh, equations_parabolic,
                           dg.mortar, dg.surface_integral, dg,
                           parabolic_scheme, Gradient(), cache)
     end

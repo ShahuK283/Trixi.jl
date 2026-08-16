@@ -101,7 +101,7 @@ function prolong2interfaces!(cache, flux_parabolic::Tuple,
     @unpack interfaces = cache
     @unpack orientations, neighbor_ids = interfaces
 
-    # OBS! `interfaces_u` stores the interpolated *fluxes* and *not the solution*!
+    # Note: `interfaces_u` stores the interpolated *fluxes* and *not the solution*!
     interfaces_u = interfaces.u
 
     flux_parabolic_x, flux_parabolic_y, flux_parabolic_z = flux_parabolic
@@ -201,7 +201,7 @@ function prolong2boundaries!(cache, flux_parabolic::Tuple,
     @unpack boundaries = cache
     @unpack orientations, neighbor_sides, neighbor_ids = boundaries
 
-    # OBS! `boundaries_u` stores the "interpolated" *fluxes* and *not the solution*!
+    # Note: `boundaries_u` stores the "interpolated" *fluxes* and *not the solution*!
     boundaries_u = boundaries.u
     flux_parabolic_x, flux_parabolic_y, flux_parabolic_z = flux_parabolic
 
@@ -556,7 +556,7 @@ end
 # Specialization `flux_parabolic::Tuple` needed to
 # avoid amibiguity with the hyperbolic version of `prolong2mortars!` in dg_3d.jl
 # which is for the variables itself, i.e., `u::Array{uEltype, 5}`.
-function prolong2mortars!(cache, flux_parabolic::Tuple,
+function prolong2mortars!(backend::Nothing, cache, flux_parabolic::Tuple,
                           mesh::TreeMesh{3},
                           equations_parabolic::AbstractEquationsParabolic,
                           mortar_l2::LobattoLegendreMortarL2, dg::DGSEM)
@@ -782,7 +782,7 @@ end
 # NOTE: Use analogy to "calc_mortar_flux!" for hyperbolic eqs with no nonconservative terms.
 # Reasoning: "calc_interface_flux!" for parabolic part is implemented as the version for
 # hyperbolic terms with conserved terms only, i.e., no nonconservative terms.
-function calc_mortar_flux!(surface_flux_values, mesh::TreeMesh{3},
+function calc_mortar_flux!(backend::Nothing, surface_flux_values, mesh::TreeMesh{3},
                            equations_parabolic::AbstractEquationsParabolic,
                            mortar_l2::LobattoLegendreMortarL2, surface_integral,
                            dg::DG, parabolic_scheme, gradient_or_divergence, cache)
